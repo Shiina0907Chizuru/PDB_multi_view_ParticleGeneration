@@ -84,7 +84,7 @@ python main.py --pdb-dir "path/to/pdb_files" --output-dir "path/to/output" --sam
 **运行示例：**
 
 ```bash
-python pdb2mrc.py "path/to/protein.pdb" "path/to/protein.pdb" 1 --Apix 1.5 -D 256 --res 3.0 -c "D:\Program Files\ChimeraX 1.8\bin\ChimeraX.exe" -o output_dir 
+python pdb2mrc.py "example\pdb5ye1.ent" "example\pdb5ye1.ent" 1 --Apix 1.5 -D 256 --res 3.0 -c "D:\Program Files\ChimeraX 1.8\bin\ChimeraX.exe" -o output_dir 
 ```
 
 这里注意一下，指令中对于PDB的路径要输入两遍，是为了保留轨迹文件的接口，如果有轨迹的.xml文件将其填入第二个PDB路径替代即可。
