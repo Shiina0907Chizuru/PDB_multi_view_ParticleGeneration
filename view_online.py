@@ -121,8 +121,8 @@ def rot_to_euler(R, angle_step=30.0):
 
 def parse_mrc(mrc_file):
     """加载MRC/MRCS文件"""
-    # 使用本地mrcfile.py提供的parse_mrc函数
-    from mrcfile import parse_mrc as local_parse_mrc
+    # 使用basement目录中的mrcfile模块解析MRC文件
+    from basement.mrcfile import parse_mrc as local_parse_mrc
     images, _ = local_parse_mrc(mrc_file)
     return images
 
