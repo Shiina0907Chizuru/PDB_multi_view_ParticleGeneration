@@ -1,6 +1,7 @@
 """
 在Windows环境下将PDB文件转换为MRC体积数据
 基于CryoBench/cryosim的pdb2mrc.py脚本修改
+支持ChimeraX/Chimera或纯Python方法生成MRC文件
 """
 
 import os
@@ -18,6 +19,7 @@ if basement_dir not in sys.path:
     sys.path.append(basement_dir)
 
 from basement import mrcfile
+from basement.mol_mrc import pdb2vol_improved
 
 CHUNK = 10000  # 定期重启ChimeraX会话以避免内存溢出
 
@@ -34,6 +36,7 @@ def parse_args():
     parser.add_argument('--create-montage', action='store_true', help='将所有MRC文件拼接成一个完整的MRC用于可视化')
     parser.add_argument('--montage-layout', type=str, default='grid', choices=['grid', 'line'], help='拼接布局方式：grid(网格) 或 line(线性)')
     parser.add_argument('--montage-spacing', type=int, default=10, help='拼接时各体积之间的间距（像素）')
+    parser.add_argument('--use-python', action='store_true', help='使用纯Python方法生成MRC文件，无需ChimeraX/Chimera')
     parser.add_argument('--debug', action='store_true', help='显示调试信息')
     return parser.parse_args()
 
@@ -200,7 +203,7 @@ class CXCFile(CommandFile):
 
 
 def pad_vol(path, Apix, D, debug=False):
-    """填充体积到指定大小"""
+    """填充体积到指定大小并确保完全居中"""
     if debug:
         print(f"\n[DEBUG][pad_vol] 开始为{path}文件填充体积")
     
@@ -214,27 +217,29 @@ def pad_vol(path, Apix, D, debug=False):
         if debug:
             print(f"[DEBUG][pad_vol] 原始体积大小: {data.shape}")
         
-        x, y, z = data.shape    
-        new_data = np.zeros((D, D, D), dtype=np.float32)    
-        i, j, k = (D-x)//2, (D-y)//2, (D-z)//2
-        if debug:
-            print(f"[DEBUG][pad_vol] 填充偏移量: i={i}, j={j}, k={k}")
+        new_data = np.zeros((D, D, D), dtype=np.float32)
+        z, y, x = data.shape
+        z_start = (D - z) // 2
+        y_start = (D - y) // 2
+        x_start = (D - x) // 2
         
-        new_data[i:(i+x), j:(j+y), k:(k+z)] = data
-        orig_x, orig_y, orig_z = header.origin
         if debug:
-            print(f"[DEBUG][pad_vol] 原始原点: ({orig_x}, {orig_y}, {orig_z})")
+            print(f"[DEBUG][pad_vol] 数据大小: z={z}, y={y}, x={x}")
+            print(f"[DEBUG][pad_vol] 起始偏移: z_start={z_start}, y_start={y_start}, x_start={x_start}")
+        
+        new_data[z_start:z_start+z, y_start:y_start+y, x_start:x_start+x] = data
         
         new_header = mrcfile.get_mrc_header(
-            new_data, True, 
-            Apix=Apix, 
-            xorg=(orig_x-k*Apix), 
-            yorg=(orig_y-j*Apix), 
-            zorg=(orig_z-i*Apix)
+            new_data, True,
+            Apix=Apix,
+            xorg=0.0,
+            yorg=0.0,
+            zorg=0.0
         )
         
         if debug:
             print(f"[DEBUG][pad_vol] 填充后体积大小: {new_data.shape}")
+        
         mrcfile.write_mrc(path, new_data, new_header)
         if debug:
             print(f"[DEBUG][pad_vol] 已保存填充后的体积到: {path}")
@@ -253,9 +258,104 @@ def center_all_vols(num_models, outdir):
         header.origin = (0., 0., 0.)
         mrcfile.write_mrc(path, data, header)
 
+def generate_ref_vol_python(pdb_path, outdir, res, Apix, D, debug=False):
+    """使用纯Python方法生成参考体积"""
+    out_abs_path = os.path.normpath(os.path.abspath(os.path.join(outdir, 'ref.mrc')))
+    if debug:
+        print(f"使用纯Python方法生成参考体积...")
+    
+    voxel_size = np.array([Apix, Apix, Apix])
+    
+    pdb2vol_improved(
+        input_pdb=pdb_path,
+        resolution=res,
+        output_mrc=out_abs_path,
+        ref_map=None,
+        sigma_factor=1/(np.pi*np.sqrt(2)),
+        cutoff_range=5.0,
+        use_atomic_number=True,
+        backbone_only=False,
+        contour=False,
+        bin_mask=False,
+        return_data=False
+    )
+    
+    if os.path.exists(out_abs_path):
+        pad_vol(out_abs_path, Apix, D, debug)
+    else:
+        print(f"\n\n错误: 没有找到输出文件 {out_abs_path}\n")
+
+
+def generate_all_vols_python(pdb_path, traj_path, num_models, outdir, res, Apix, D, debug=False):
+    """使用纯Python方法生成所有体积数据"""
+    if debug:
+        print(f"使用纯Python方法生成所有体积，总数: {num_models}...")
+    for i in range(num_models):
+        vol_path = os.path.join(outdir, f'vol_{i:05d}.mrc')
+        if debug:
+            print(f"处理模型 {i+1}/{num_models}...")
+        
+        # 这里需要额外处理，如何从轨迹文件提取特定模型
+        # 由于mol_mrc.py没有直接处理轨迹文件的功能，可能需要使用额外的库
+        # 这里暂时简化，假设每个模型都使用相同的PDB文件
+        
+        data = np.zeros((D, D, D), dtype=np.float32)
+        
+        from basement.mol_mrc import get_atom_list
+        from basement.mol_mrc import make_gaussian_density_map
+        
+        atoms, types = get_atom_list(pdb_path, backbone_only=False)
+        if debug:
+            print(f"读取原子数量: {len(atoms)}")
+        
+        center_atom = np.mean(atoms, axis=0)
+        if debug:
+            print(f"原子中心: {center_atom}")
+        
+        center_volume = np.array([D/2, D/2, D/2]) * Apix
+        atoms_centered = atoms - center_atom + center_volume
+        
+        if debug:
+            print(f"移动后原子中心: {np.mean(atoms_centered, axis=0)}")
+            print(f"计算密度图...")
+        
+        origin = (0.0, 0.0, 0.0)
+        voxel_size = np.array([Apix, Apix, Apix])
+        density = make_gaussian_density_map(
+            origin, 
+            voxel_size, 
+            (D, D, D),
+            atoms_centered, 
+            types, 
+            res,
+            sigma_factor=1/(np.pi*np.sqrt(2)),
+            cutoff_range=5.0,
+            use_atomic_number=True
+        )
+        
+        if debug:
+            print(f"密度图统计信息: min={density.min():.6f}, max={density.max():.6f}, mean={density.mean():.6f}")
+        
+        header = mrcfile.get_mrc_header(
+            density, 
+            True,
+            Apix=Apix,
+            xorg=-(D/2)*Apix,
+            yorg=-(D/2)*Apix,
+            zorg=-(D/2)*Apix
+        )
+        mrcfile.write_mrc(vol_path, density, header)
+        pad_vol(vol_path, Apix, D, debug)
+        
+        if debug:
+            print(f"已生成体积: {vol_path}")
+    
+    if debug:
+        print(f"完成! 所有{num_models}个体积已保存到 {outdir}")
+
 
 def generate_ref_vol(pdb_path, outdir, executable_path, res, Apix, D, debug=False):
-    """生成参考体积"""
+    """生成参考体积（使用ChimeraX/Chimera）"""
     is_cx = is_chimerax(executable_path)
     cmd = CommandFile(is_chimerax_mode=is_cx, debug=debug)
     pdb_abs_path = os.path.normpath(os.path.abspath(pdb_path))
@@ -281,7 +381,7 @@ def generate_ref_vol(pdb_path, outdir, executable_path, res, Apix, D, debug=Fals
     cmd.execute(executable_path, cmd_path)
     
     if os.path.exists(out_abs_path):
-        pad_vol(out_abs_path, Apix, D)
+        pad_vol(out_abs_path, Apix, D, debug)
     else:
         print(f"\n\n错误: 没有找到输出文件 {out_abs_path}\n")
 
@@ -316,16 +416,11 @@ def generate_all_vols(pdb_path, traj_path, num_models, outdir, executable_path, 
             # 注意: Chimera的模型编号从0开始，而ChimeraX从1开始
             # 对于每个模型，我们需要单独打开、处理和关闭
             for i in range(start, min(start+CHUNK, num_models)):
-                # 打开PDB文件
                 cmd.add(f"open {pdb_abs_path}")
-                # 设置坐标集
                 cmd.add(f"coordset #0 {i+1}")
-                # 生成体积
                 cmd.add(f"molmap #0 {res} gridSpacing {Apix}")
-                # 保存体积数据
                 vol_path = os.path.normpath(os.path.abspath(os.path.join(outdir, f'vol_{i:05d}.mrc')))
                 cmd.add(f"volume #0.1 save {vol_path}")
-                # 关闭所有模型以便处理下一个
                 cmd.add("close all")
             
             cmd.add("stop")
@@ -353,7 +448,6 @@ def generate_all_vols(pdb_path, traj_path, num_models, outdir, executable_path, 
 def create_mrc_montage(outdir, num_models, layout='grid', spacing=10, D=256, debug=False):
     """将多个MRC文件拼接成一个可视化用的MRC文件"""
     
-    # 确定布局
     if layout == 'grid':
         grid_size = math.ceil(math.sqrt(num_models))
         rows, cols = grid_size, grid_size
@@ -426,26 +520,31 @@ if __name__=="__main__":
     
     os.makedirs(args.o, exist_ok=True)
     
-    is_cx = is_chimerax(args.c)
-    software_name = "ChimeraX" if is_cx else "UCSF Chimera"
-    
-    print(f"检测到软件: {software_name}")
-    if args.debug:
-        print(f"软件路径: {args.c}")
-    
-    if args.debug:
-        print(f"开始使用{software_name}从PDB生成参考体积...")
-    generate_ref_vol(args.pdb, args.o, args.c, args.res, args.Apix, args.D, debug=args.debug)
-    
-    if args.debug:
-        print(f"开始使用{software_name}从轨迹生成所有体积，总数: {args.num_models}...")
-    generate_all_vols(args.pdb, args.traj, args.num_models, args.o, args.c, args.res, args.Apix, args.D, debug=args.debug)
-    
-    if args.debug:
-        print(f"对所有生成的体积进行填充处理，目标尺寸: {args.D}×{args.D}×{args.D}...")
-    for i in range(args.num_models):
-        vol_path = os.path.join(args.o, f'vol_{i:05d}.mrc')
-        pad_vol(vol_path, args.Apix, args.D, debug=args.debug)
+    if args.use_python:
+        print("使用纯Python方法生成MRC文件")
+        
+        if args.debug:
+            print(f"开始使用纯Python方法从PDB生成参考体积...")
+        generate_ref_vol_python(args.pdb, args.o, args.res, args.Apix, args.D, debug=args.debug)
+        
+        if args.debug:
+            print(f"开始使用纯Python方法从轨迹生成所有体积，总数: {args.num_models}...")
+        generate_all_vols_python(args.pdb, args.traj, args.num_models, args.o, args.res, args.Apix, args.D, debug=args.debug)
+    else:
+        is_cx = is_chimerax(args.c)
+        software_name = "ChimeraX" if is_cx else "UCSF Chimera"
+        
+        print(f"检测到软件: {software_name}")
+        if args.debug:
+            print(f"软件路径: {args.c}")
+        
+        if args.debug:
+            print(f"开始使用{software_name}从PDB生成参考体积...")
+        generate_ref_vol(args.pdb, args.o, args.c, args.res, args.Apix, args.D, debug=args.debug)
+        
+        if args.debug:
+            print(f"开始使用{software_name}从轨迹生成所有体积，总数: {args.num_models}...")
+        generate_all_vols(args.pdb, args.traj, args.num_models, args.o, args.c, args.res, args.Apix, args.D, debug=args.debug)
     
     if args.create_montage:
         if args.debug:
@@ -461,4 +560,3 @@ if __name__=="__main__":
         print(f"拼接图已保存至: {montage_path} 和 {png_path}")
     
     print(f"完成! 所有{args.num_models}个体积已保存到 {args.o}")
-

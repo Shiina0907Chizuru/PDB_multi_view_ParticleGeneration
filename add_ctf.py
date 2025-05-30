@@ -72,6 +72,11 @@ def parse_args():
         help="输出的Pickle文件路径，用于存储CTF参数 (默认: [输出mrcs文件名].pkl)",
     )
     parser.add_argument("--out-png", help="输出的PNG图像路径，用于保存处理后粒子的示例图")
+    parser.add_argument(
+        "--pose-pkl",
+        type=os.path.abspath,
+        help="位姿信息PKL文件路径，包含投影图像的欧拉角信息，将被写入STAR文件",
+    )
 
     # CTF参数组
     group = parser.add_argument_group("CTF parameters")
@@ -152,9 +157,38 @@ def write_starfile(out, mrc, Nimg, df, ang, kv, wgh, cs, ps, metadata=None):
     ]
 
     if metadata is not None:
-        header.extend(["_rlnEuler1", "_rlnEuler2", "_rlnEuler3\n"])
-        metadata = pickle.load(open(metadata, "rb"))
-        assert len(metadata) == Nimg
+        header.extend(["_rlnAngleRot", "_rlnAngleTilt", "_rlnAnglePsi", "_rlnOriginXAngst", "_rlnOriginYAngst\n"])
+        metadata_data = pickle.load(open(metadata, "rb"))
+        log(f"Loaded metadata from {metadata} with {len(metadata_data)} entries")
+        
+        # 检查元数据格式，适配不同的数据结构
+        if isinstance(metadata_data, dict) and 'euler_angles' in metadata_data:
+            # project3d.py生成的标准格式
+            euler_angles = metadata_data['euler_angles']
+            assert len(euler_angles) == Nimg, f"Mismatch in number of images: {Nimg} vs {len(euler_angles)}"
+            metadata = euler_angles
+        elif isinstance(metadata_data, list) and len(metadata_data) == Nimg:
+            # 假设是直接的角度列表
+            metadata = metadata_data
+        else:
+            # 尝试其他可能的格式
+            log(f"Warning: Unknown metadata format, attempting to extract Euler angles")
+            try:
+                if isinstance(metadata_data, dict):
+                    for key in metadata_data:
+                        if isinstance(metadata_data[key], np.ndarray) and metadata_data[key].shape[0] == Nimg:
+                            metadata = metadata_data[key]
+                            break
+                elif isinstance(metadata_data, np.ndarray) and metadata_data.shape[0] == Nimg:
+                    metadata = metadata_data
+                else:
+                    log(f"Error: Could not extract Euler angles from metadata")
+                    metadata = None
+                    header[-1] += "\n"  # 添加新行
+            except Exception as e:
+                log(f"Error extracting Euler angles: {e}")
+                metadata = None
+                header[-1] += "\n"  # 添加新行
     else:
         header[-1] += "\n"
     lines = []
@@ -171,7 +205,14 @@ def write_starfile(out, mrc, Nimg, df, ang, kv, wgh, cs, ps, metadata=None):
             ps,
         ]
         if metadata is not None:
-            line.extend(metadata[i])
+            # 添加欧拉角
+            if len(metadata[i]) >= 3:
+                line.extend(metadata[i][:3])  # 只取前三个值作为欧拉角
+            else:
+                line.extend(metadata[i])
+            
+            # 添加X,Y位移（默认为0）
+            line.extend([0.0, 0.0])
         lines.append(" ".join([str(x) for x in line]))
     f = open(out, "w")
     f.write("# Created {}\n".format(dt.now()))
@@ -375,17 +416,34 @@ def main(args):
     if args.out_star is None:
         args.out_star = f"{args.o}.star"
     log(f"Writing associated .star file to {args.out_star}")
-    write_starfile(
-        args.out_star,
-        args.o,
-        Nimg,
-        defocus_list,
-        args.ang,
-        args.kv,
-        args.wgh,
-        args.cs,
-        args.ps,
-    )
+    
+    # 检查是否提供了位姿文件
+    if args.pose_pkl and os.path.exists(args.pose_pkl):
+        log(f"Including pose information from {args.pose_pkl} in STAR file")
+        write_starfile(
+            args.out_star,
+            args.o,
+            Nimg,
+            defocus_list,
+            args.ang,
+            args.kv,
+            args.wgh,
+            args.cs,
+            args.ps,
+            metadata=args.pose_pkl
+        )
+    else:
+        write_starfile(
+            args.out_star,
+            args.o,
+            Nimg,
+            defocus_list,
+            args.ang,
+            args.kv,
+            args.wgh,
+            args.cs,
+            args.ps,
+        )
 
     if not args.ctf_pkl:
         if args.out_pkl is None:

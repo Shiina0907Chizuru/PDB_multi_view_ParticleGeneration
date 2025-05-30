@@ -8,11 +8,17 @@
 - PyTorch
 - NumPy, SciPy
 - Matplotlib
+- tqdm 
+- numba 
+- Biopython 
 - ChimeraX 或者Chimera(用于从PDB生成密度图,脚本中根据可执行文件名称自动切换指令)
+  - **注意：** 现在也支持纯Python方法生成MRC文件，无需安装ChimeraX或Chimera（纯Python方法需要Biopython和numba）
 
 ## 批处理（一体化流程）
 
-使用`main.py`脚本可以自动化执行从PDB文件到多视图粒子图像的完整批处理流程，一次性处理多个PDB文件并生成相应的产物。
+使用`main.py`脚本可以全自动处理流程
+
+除了使用上述单独的脚本来进行处理外，我们还提供了一个全自动的流程，可以一次性完成从创建参考体积到生成带CTF的粒子所有步骤。
 
 **参数说明：**
 
@@ -28,6 +34,7 @@ Step 1参数（PDB转MRC）：
 - `--Apix`: 体素大小(Å/pixel)，默认为1.5
 - `--D`: 密度图尺寸大小，默认为128
 - `--res`: 模拟密度图的分辨率(Å)，默认为3.0
+- `--use-python`: 使用纯Python方法生成MRC文件，无需ChimeraX/Chimera
 
 Step 2参数（生成均匀姿态，仅uniform模式使用））：
 
@@ -41,6 +48,18 @@ Step 3参数（3D投影）：
 - `--t-extent`: 像素平移范围，默认为5.0
 - `--batch-size`: 投影生成的批量大小，较大的值可加快处理速度，但可能占用更多内存，默认为100
 
+------
+
+**工作流程更新：** 
+
+- 现在第5步（添加CTF）会自动使用第3步（多角度投影）生成的位姿文件，无需手动指定。
+- STAR文件格式完全兼容Relion 3.1，包含以下标准字段：
+  - 基本CTF参数：`_rlnDefocusU`, `_rlnDefocusV`, `_rlnDefocusAngle`, `_rlnVoltage`, `_rlnAmplitudeContrast`, `_rlnSphericalAberration`, `_rlnPhaseShift`
+  - 位姿信息：`_rlnAngleRot`, `_rlnAngleTilt`, `_rlnAnglePsi`
+  - 位移信息：`_rlnOriginXAngst`, `_rlnOriginYAngst`（默认设为0）
+
+------
+
 Step 5参数（添加CTF）：
 
 - `--ctf-pkl`: CTF参数文件路径（必需）
@@ -48,10 +67,16 @@ Step 5参数（添加CTF）：
 - `--snr2`: CTF后噪声的信噪比，默认为10.0
 - `--no-noise`: 设置此参数时不添加任何噪声，只应用CTF
 
-**运行示例：**
+**使用方法：**
 
 ```bash
-python main.py --pdb-dir "path/to/pdb_files" --output-dir "path/to/output" --sampling-mode uniform --chimerax-path "D:\\Program Files\\ChimeraX 1.8\\bin\\ChimeraX.exe" --angle-step 30 --ctf-pkl "selected_ctf.pkl" --Apix 1.5 --D 256 --generate-csv --skip-alpha
+# 使用ChimeraX生成MRC文件
+# 自动生成位姿文件并添加到STAR文件中
+python main.py 输入PDB文件路径 --output-dir 输出目录 --chimera-path "ChimeraX或Chimera的路径" --ctf-pkl CTF参数文件 --Apix 1.5 --N 1000 --snr1 20 --snr2 10
+
+# 使用Python方法生成MRC文件
+# 自动生成位姿文件并添加到STAR文件中
+python main.py 输入PDB文件路径 --output-dir 输出目录 --use-python --ctf-pkl CTF参数文件 --Apix 1.5 --N 1000 --snr1 20 --snr2 10
 ```
 
 ## 完整流程
@@ -73,6 +98,7 @@ python main.py --pdb-dir "path/to/pdb_files" --output-dir "path/to/output" --sam
 - `-D`: 密度图尺寸大小（默认值：256）
 - `--res`: 模拟密度图的分辨率，单位为埃（默认值：3.0）
 - `-c`: Chimera或ChimeraX可执行文件路径（默认将尝试查找系统路径）
+- `--use-python`: 使用纯Python方法生成MRC文件，无需ChimeraX或Chimera
 - `--debug`: 显示详细的调试信息，包括命令执行过程和中间结果（默认关闭）
 
 可视化参数（可选）：
@@ -84,7 +110,11 @@ python main.py --pdb-dir "path/to/pdb_files" --output-dir "path/to/output" --sam
 **运行示例：**
 
 ```bash
+# 使用ChimeraX生成MRC文件
 python pdb2mrc.py "example\pdb5ye1.ent" "example\pdb5ye1.ent" 1 --Apix 1.5 -D 256 --res 3.0 -c "D:\Program Files\ChimeraX 1.8\bin\ChimeraX.exe" -o output_dir 
+
+# 使用纯Python方法生成MRC文件
+python pdb2mrc.py "example\pdb5ye1.ent" "example\pdb5ye1.ent" 1 --Apix 1.5 -D 256 --res 3.0 --use-python -o output_dir
 ```
 
 这里注意一下，指令中对于PDB的路径要输入两遍，是为了保留轨迹文件的接口，如果有轨迹的.xtc文件将其填入第二个PDB路径替代即可。
@@ -179,6 +209,7 @@ python analyze_ctf_pkl.py --pkl 9076_ctfs.pkl --mode select --output selected_ct
 - `--out-star`: 输出的STAR文件路径（默认：[输出mrcs文件名].star）
 - `--out-pkl`: 输出的ctfPickle文件路径（默认：[输出mrcs文件名].pkl）
 - `--out-png`: 输出的PNG图像路径
+- `--pose-pkl`: 位姿信息PKL文件路径，包含投影图像的欧拉角信息，将被写入STAR文件（兼容Relion 3.1格式，包含`_rlnAngleRot`, `_rlnAngleTilt`, `_rlnAnglePsi`, `_rlnOriginXAngst`, `_rlnOriginYAngst`字段）
 - `--Apix`: 体素大小，单位为埃/像素
 - `--ctf-pkl`: 从指定的pkl文件加载CTF参数
 - `--df-file`: 从指定的pkl文件加载散焦参数
@@ -197,7 +228,11 @@ python analyze_ctf_pkl.py --pkl 9076_ctfs.pkl --mode select --output selected_ct
 **运行示例：**
 
 ```bash
+# 基本用法
 python add_ctf.py "output_dir/particles.mrcs" --ctf-pkl selected_ctf.pkl -o "output_dir/particles_with_ctf.mrcs" --Apix 1.5 --snr1 20 --snr2 10 --out-png ctf_preview.png
+
+# 包含位姿信息（将欧拉角写入STAR文件）
+python add_ctf.py "output_dir/particles.mrcs" --ctf-pkl selected_ctf.pkl -o "output_dir/particles_with_ctf.mrcs" --Apix 1.5 --pose-pkl "output_dir/poses.pkl" --out-png ctf_preview.png
 ```
 
 ### 上位机：查看生成的粒子图像

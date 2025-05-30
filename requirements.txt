@@ -1,0 +1,23 @@
+# PDB_multi_view_ParticleGeneration Requirements
+# Created: 2025-05-30
+
+# 核心依赖
+numpy>=1.24.3
+scipy>=1.10.1
+matplotlib>=3.7.2
+torch>=2.4.1
+torchvision>=0.20.0
+biopython>=1.83
+numba>=0.58.1
+tqdm>=4.67.1
+mrcfile>=1.5.4
+
+# 数据处理
+pandas>=2.0.3
+pillow>=10.4.0
+
+# 可视化
+seaborn>=0.13.2
+
+# 注意: 如果使用CUDA加速，请确保安装了兼容的CUDA版本
+# 当前环境使用的是CUDA 11.8

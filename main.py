@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--Apix", type=float, default=1.5, help="体积的像素大小(Å/pixel)")
     parser.add_argument("--D", type=int, default=256, help="体积的盒子大小")
     parser.add_argument("--res", type=float, default=3.0, help="模拟密度的分辨率(Å)")
+    parser.add_argument("--use-python", action="store_true", help="使用纯Python方法生成MRC文件，无需ChimeraX/Chimera")
     
     # Step 2参数: 生成均匀姿态（仅uniform模式使用）
     parser.add_argument("--angle-step", type=float, default=30.0, help="角度采样步长(度)")
@@ -93,9 +94,14 @@ def step1_pdb_to_mrc(pdb_file, output_mrc_dir, args):
         "--Apix", str(args.Apix),
         "-D", str(args.D),
         "--res", str(args.res),
-        "-c", args.chimerax_path,
         "-o", output_mrc_subdir
     ]
+    
+    # 如果使用纯Python方法，添加--use-python参数
+    if args.use_python:
+        cmd.append("--use-python")
+    else:
+        cmd.extend(["-c", args.chimerax_path])
     
     print(f"执行命令: {' '.join(cmd)}")
     
@@ -212,7 +218,7 @@ def step3_project_3d(mrc_file, poses_file, output_proj_dir, pdb_basename, args):
         return None, None
 
 
-def step5_add_ctf(mrcs_file, ctf_pkl, output_particles_dir, pdb_basename, args):
+def step5_add_ctf(mrcs_file, ctf_pkl, output_particles_dir, pdb_basename, args, pose_file=None):
     """步骤5: 将CTF影响添加到投影图像中"""
     # 设置输出文件路径
     output_file = os.path.join(output_particles_dir, f"{pdb_basename}_with_ctf.mrcs")
@@ -231,6 +237,11 @@ def step5_add_ctf(mrcs_file, ctf_pkl, output_particles_dir, pdb_basename, args):
         "--snr2", str(args.snr2),
         "--Apix", str(args.Apix)
     ]
+    
+    # 如果提供了位姿文件，添加到命令中
+    if pose_file and os.path.exists(pose_file):
+        print(f"将使用位姿文件: {pose_file} 添加到STAR文件中")
+        cmd.extend(["--pose-pkl", pose_file])
     
     # 如果设置了不添加噪声选项
     if args.no_noise:
@@ -292,7 +303,7 @@ def process_single_pdb(pdb_file, dirs, args):
     
     # Step 5: 添加CTF影响
     print(f"\n--- 步骤5: 将CTF影响添加到投影图像 ---")
-    final_file, star_file, pkl_file = step5_add_ctf(mrcs_file, args.ctf_pkl, dirs["particles"], pdb_basename, args)
+    final_file, star_file, pkl_file = step5_add_ctf(mrcs_file, args.ctf_pkl, dirs["particles"], pdb_basename, args, out_pose_file)
     if not final_file:
         print(f"错误: 无法为 {pdb_basename} 添加CTF影响")
         return False
