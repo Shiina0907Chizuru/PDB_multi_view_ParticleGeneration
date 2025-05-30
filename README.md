@@ -71,7 +71,7 @@ python main.py --pdb-dir "path/to/pdb_files" --output-dir "path/to/output" --sam
 可选参数：
 - `--Apix`: 体素大小，单位为埃/像素（默认值：1.5）
 - `-D`: 密度图尺寸大小（默认值：256）
-- `--res`: 模拟密度的分辨率，单位为埃（默认值：3.0）
+- `--res`: 模拟密度图的分辨率，单位为埃（默认值：3.0）
 - `-c`: Chimera或ChimeraX可执行文件路径（默认将尝试查找系统路径）
 - `--debug`: 显示详细的调试信息，包括命令执行过程和中间结果（默认关闭）
 
@@ -87,7 +87,7 @@ python main.py --pdb-dir "path/to/pdb_files" --output-dir "path/to/output" --sam
 python pdb2mrc.py "example\pdb5ye1.ent" "example\pdb5ye1.ent" 1 --Apix 1.5 -D 256 --res 3.0 -c "D:\Program Files\ChimeraX 1.8\bin\ChimeraX.exe" -o output_dir 
 ```
 
-这里注意一下，指令中对于PDB的路径要输入两遍，是为了保留轨迹文件的接口，如果有轨迹的.xml文件将其填入第二个PDB路径替代即可。
+这里注意一下，指令中对于PDB的路径要输入两遍，是为了保留轨迹文件的接口，如果有轨迹的.xtc文件将其填入第二个PDB路径替代即可。
 
 ### Step 2：生成均匀采样的位姿信息[如果希望随机采样可跳过这一步]
 
